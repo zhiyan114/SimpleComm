@@ -1,6 +1,5 @@
 ﻿using Server;
-using System.Net;
-using System.Security.Cryptography.X509Certificates;
+using System.Text;
 
 Console.Title = "SimpleComm Server Software";
 utils.print("Loading up config files...");
@@ -30,11 +29,11 @@ string certPass = Console.ReadLine() ?? "";
 
 // Setup Network
 NetworkManager network = new NetworkManager(conf, certPass);
-utils.print("Server is listening...");
 network.setupListenThread();
-utils.print("Server is listening for client requests...");
+utils.print("Server is listening...");
 while(true)
 {
-    Console.ReadLine();
+    string message = Console.ReadLine();
+    if(message != null)
+        await network.broadcastClient(Encoding.UTF8.GetBytes(String.Format("server\0{0}", message)));
 }
-return 0;
