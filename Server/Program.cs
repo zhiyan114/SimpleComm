@@ -25,15 +25,13 @@ utils.print("Config Loaded...");
 Console.WriteLine("Please enter server cert password (empty if none): ");
 string certPass = Console.ReadLine() ?? "";
 
-// Get the server cert and pass it along
-
 // Setup Network
 NetworkManager network = new NetworkManager(conf, certPass);
 network.setupListenThread();
 utils.print("Server is listening...");
 while(true)
 {
-    string message = Console.ReadLine();
+    string? message = Console.ReadLine();
     if(message != null)
-        await network.broadcastClient(Encoding.UTF8.GetBytes(String.Format("server\0{0}", message)));
+        await network.broadcastClient(Encoding.UTF8.GetBytes(String.Format("server\0{0}<EOF>", message.Replace("<EOF>", ""))));
 }

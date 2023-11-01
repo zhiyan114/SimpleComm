@@ -122,8 +122,13 @@ namespace Server
                     LeftByte = await stream.ReadAsync(msgBuffer, 0, msgBuffer.Length);
                     userMessage.Append(msgBuffer);
                 } while (LeftByte != 0);
-                utils.print(userMessage.ToString(), String.Format("{0} ({1})", stream.RemoteCertificate!.Subject, stream.RemoteCertificate.GetSerialNumberString()));
-                await this.broadcastClient(Encoding.UTF8.GetBytes(String.Format("${0}\0${1}", stream.RemoteCertificate.Subject,userMessage.ToString())));
+                string[] Messages = userMessage.ToString().Split("<EOF>");
+                // Get all the seperate message and process them, ignore the last item since I'll be empty
+                for(int i = 0; i < Messages.Length-1; i++)
+                {
+                    utils.print(Messages[i].ToString(), String.Format("{0} ({1})", stream.RemoteCertificate!.Subject, stream.RemoteCertificate.GetSerialNumberString()));
+                    await this.broadcastClient(Encoding.UTF8.GetBytes(String.Format("${0}\0${1}<EOF>", stream.RemoteCertificate.Subject, Messages[i].ToString())));
+                }
             }
         }
 
