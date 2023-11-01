@@ -9,6 +9,8 @@
         * 0x3 - Authenticates as file request client (require chat OID)
 3. Setup thread to accept user message or upload
 4. Setup thread to relay the messages among the users
+
+* Race Condition: Use `<EOF>` to detect end of the message to prevent latency from mixing multiple different message submissions.
 ### TODO
 * Finish Client Disconnection Checks
 * File Upload Feat

@@ -44,7 +44,7 @@ namespace Server
                 SslStream unauthStream = new SslStream(unauthCli.GetStream(), false);
                 try
                 {
-                    await unauthStream.AuthenticateAsServerAsync(this.serverCert, true, true);
+                    await unauthStream.AuthenticateAsServerAsync(this.serverCert, true, false);
                     
                     if (unauthStream.RemoteCertificate == null) { await _rejectClient(unauthCli, unauthStream, "Certificate is required to authenticate you"); return; }
                     X509Certificate2 cliCert = new X509Certificate2(unauthStream.RemoteCertificate);
@@ -73,13 +73,15 @@ namespace Server
                         // Chat Client
                         case 0x1:
                             // Verify OID by checking if it has any (none means full privileged cert) and matches the one on the whitelist
-                            if (KeyUsages.Count > 0 &&
+                            if (conf.ChatOID.Length > 0 &&
+                                KeyUsages.Count > 0 &&
                                 KeyUsages.Find((k)=>Array.IndexOf<string>(this.conf.ChatOID, k.Oid?.Value ?? "") != -1) == null)
                             {
                                 await _rejectClient(unauthCli, unauthStream, "Certificate Unauthorized to access chat");
                                 return;
                             }
                             await _acceptChatClient(unauthCli, unauthStream);
+                            utils.print("New Client Accepted!");
                             break;
                         // File Upload Client
                         case 0x2:
@@ -98,7 +100,7 @@ namespace Server
                 }
                 catch (AuthenticationException Aex)
                 {
-                    utils.print("A client's authentication occured an error", "AuthError");
+                    utils.print("A client's authentication occured an error: "+Aex, "AuthError");
                     unauthStream.Close();
                     unauthCli.Close();
                 }
@@ -126,8 +128,9 @@ namespace Server
                 // Get all the seperate message and process them, ignore the last item since I'll be empty
                 for(int i = 0; i < Messages.Length-1; i++)
                 {
-                    utils.print(Messages[i].ToString(), String.Format("{0} ({1})", stream.RemoteCertificate!.Subject, stream.RemoteCertificate.GetSerialNumberString()));
-                    await this.broadcastClient(Encoding.UTF8.GetBytes(String.Format("${0}\0${1}<EOF>", stream.RemoteCertificate.Subject, Messages[i].ToString())));
+                    X509Certificate2 remoteCert = new X509Certificate2(stream.RemoteCertificate!);
+                    utils.print(Messages[i].ToString(), String.Format("{0} ({1})", utils.getCertCN(remoteCert.SubjectName), remoteCert.GetSerialNumberString()));
+                    await this.broadcastClient(Encoding.UTF8.GetBytes(String.Format("${0}\0${1}<EOF>", utils.getCertCN(remoteCert.SubjectName), Messages[i].ToString())));
                 }
             }
         }
@@ -138,7 +141,7 @@ namespace Server
         // Handles client acceptance and welcome message
         async private Task _acceptChatClient(TcpClient cli, SslStream stream)
         {
-            byte[] welcomeMsg = Encoding.UTF8.GetBytes(String.Format("Authentication Success: {0}", this.conf.MOTD));
+            byte[] welcomeMsg = Encoding.UTF8.GetBytes(String.Format("0:"+"Authentication Success: {0}", this.conf.MOTD));
             await stream.WriteAsync(welcomeMsg, 0, welcomeMsg.Length);
             ChatClient.Add(cli);
             ChatClientStream[cli] = stream;
@@ -148,7 +151,7 @@ namespace Server
         // Reject the client's connection after connection passes
         async private Task _rejectClient(TcpClient cli, SslStream stream, string reason = "")
         {
-            byte[] msg = Encoding.UTF8.GetBytes(reason);
+            byte[] msg = Encoding.UTF8.GetBytes("1:"+reason);
             await stream.WriteAsync(msg,0,msg.Length);
             await stream.ShutdownAsync();
             cli.Close();
