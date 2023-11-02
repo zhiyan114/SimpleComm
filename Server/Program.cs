@@ -13,14 +13,34 @@ if(conf == null)
     if (confmgr.ConfigExists())
     {
         utils.print("Config file detected, but may have invalid format. If needed to, you can delete it and have the software generate a new config file", null, true);
-        return 0;
+        return;
     }
     confmgr.createEmptyConfig();
     utils.print("Config not detected, please refer to the config file and set it up before running the software again...");
     confmgr.printDoc();
-    return 0;
+    return;
 }
 utils.print("Config Loaded...");
+
+/* Starts Config Validation Starts */
+
+// Validate Certificate Path
+if (!File.Exists(conf.serverCertName))
+{
+    utils.print("Provided certificate path doesn't exist", null, true);
+    return;
+}
+// Check if CA Fingerprint exists
+if(conf.CAFingerprint.Length == 0)
+{
+    utils.print("No CA Fingerprints found. This is require in order for the client to authenticate", null, true);
+    return;
+}
+// Check if Chat OID exists, otherwise just warning
+if (conf.ChatOID.Length == 0)
+    utils.print("No ChatOID Found. Only certificate without ExtendedKeyUsage Extension (Full Privilege Cert) will be authenticated");
+
+/* Ends Config Validation Ends */
 
 // Setup Network
 NetworkManager? network = null;

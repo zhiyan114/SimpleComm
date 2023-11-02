@@ -7,7 +7,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
-Console.Title = "SimpleComm Client Software (Not Connected)";
+Console.Title = "SimpleComm Client Software";
 utils.print("SimpleComm Client Software Loaded...");
 
 // Prompt for valid IP and Port
