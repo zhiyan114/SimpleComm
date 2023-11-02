@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -32,6 +33,12 @@ namespace Client
                 return !(socket.Poll(1, SelectMode.SelectRead) && socket.Available == 0);
             }
             catch (SocketException) { return false; }
+        }
+        public static bool isRunningAdmin()
+        {
+            if (!OperatingSystem.IsWindows()) return false;
+            using(WindowsIdentity identity = WindowsIdentity.GetCurrent())
+                return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
         }
     }
 }

@@ -16,7 +16,7 @@ while(srvIP == null || srvPort == 0)
 {
     Console.WriteLine("Enter server address to connect (IP or IP:PORT):");
     string? AddrInput = Console.ReadLine();
-    if(AddrInput == null)
+    if(AddrInput == null || string.IsNullOrWhiteSpace(AddrInput))
     {
         utils.print("No input detected", "ConnMgr");
         continue;
@@ -30,13 +30,21 @@ while(srvIP == null || srvPort == 0)
     {
         
         // Do a DNS parsing
-        IPAddress[] addrs = Dns.GetHostAddresses(AddrPort[0]);
-        if(addrs.Length == 0)
+        try
         {
-            utils.print("Invalid IP Address", "ConnMgr");
+            IPAddress[] addrs = Dns.GetHostAddresses(AddrPort[0]);
+            if (addrs.Length == 0)
+            {
+                utils.print("No IP Address found", "ConnMgr");
+                continue;
+            }
+            srvIP = addrs[0];
+        } catch(SocketException)
+        {
+            utils.print("Invalid Domain Name or IP Address", "ConnMgr");
             continue;
         }
-        srvIP = addrs[0];
+        
     }
     // Get the port number
     if (AddrPort.Length > 1)
@@ -63,7 +71,7 @@ while(srvIP == null || srvPort == 0)
 X509Certificate2? clientCert = null;
 while(clientCert == null)
 {
-    Console.WriteLine("Enter Certificate Retrival Method (1=Windows Cert Store; 2=Smart Card; 3=PKCS#12 File): ");
+    Console.WriteLine("Enter Certificate Retrival Method (1=Windows Cert Store; 2=Smart Card; 3=PKCS#12 File):");
     try
     {
         string? AddrInput = Console.ReadLine();
@@ -92,21 +100,37 @@ while(clientCert == null)
                 clientCert = selectedCert[0];
                 break;
             case 2:
-                // Smart Card Store
-                utils.print("Please use the certificate store to find your smart card for now", "CertMgr");
-                continue;
-                if (!OperatingSystem.IsWindows())
+                try
                 {
-                    utils.print("Smart Card is only supported on Windows", "CertMgr");
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        utils.print("Smart Card is only supported on Windows", "CertMgr");
+                        continue;
+                    }
+                    // Pull single cert when not running as admin (due to API privilege)
+                    if (!utils.isRunningAdmin())
+                    {
+                        utils.print("Smart Card Selection is only available when running as administrator");
+                        clientCert = SmartCard.GetDefaultSmartCardCert();
+                        if (clientCert != null) break;
+                        utils.print("No smart card detected, try again");
+                        continue;
+                    }
+                    // Pull all available cert when running as admin
+                    X509Certificate2Collection selectedSmartCard = X509Certificate2UI.SelectFromCollection(SmartCard.GetCertificates(), "Select Smart Card", "Select one of the following smart card certificate for client authentication", X509SelectionFlag.SingleSelection);
+                    if (selectedSmartCard.Count == 0)
+                    {
+                        utils.print("No Smart Card Selected", "CertMgr");
+                        continue;
+                    }
+                    clientCert = selectedSmartCard[0];
+                    break;
+                } catch(CryptographicException)
+                {
+                    utils.print("No smart card detected, try again", "CertMgr");
                     continue;
                 }
-                X509Certificate2Collection selectedSmartCard = X509Certificate2UI.SelectFromCollection(SmartCard.GetCertificates(), "Select Smart Card", "Select one of the following smart card certificate for client authentication", X509SelectionFlag.SingleSelection);
-                if (selectedSmartCard.Count == 0)
-                {
-                    utils.print("No Smart Card Selected", "CertMgr");
-                    continue;
-                }
-                break;
+                
             case 3:
                 // PKCS#12 File
                 while (true)
