@@ -1,4 +1,5 @@
 ﻿using Server;
+using System.Security.Cryptography;
 using System.Text;
 
 Console.Title = "SimpleComm Server Software";
@@ -21,12 +22,21 @@ if(conf == null)
 }
 utils.print("Config Loaded...");
 
-// Assume checks are all passed, get the server cert password
-Console.WriteLine("Please enter server cert password (empty if none): ");
-string certPass = Console.ReadLine() ?? "";
-
 // Setup Network
-NetworkManager network = new NetworkManager(conf, certPass);
+NetworkManager? network = null;
+do
+{
+    try
+    {
+        Console.WriteLine("Please enter server cert password (empty if none): ");
+        string certPass = Console.ReadLine() ?? "";
+        network = new NetworkManager(conf, certPass);
+    } catch(CryptographicException)
+    {
+        utils.print("Invalid Certificate Password, try again");
+    }
+} while(network == null);
+
 network.setupListenThread();
 utils.print("Server is listening...");
 while(true)
