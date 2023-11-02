@@ -41,27 +41,56 @@ namespace Server
             {
                 TcpClient unauthCli = await server.AcceptTcpClientAsync();
                 // Perform inital authentication check
-                SslStream unauthStream = new SslStream(unauthCli.GetStream(), false);
+                SslStream unauthStream = new SslStream(unauthCli.GetStream(), false,(a,b,c,d)=>true);
                 try
                 {
                     await unauthStream.AuthenticateAsServerAsync(this.serverCert, true, false);
 
-                    if (unauthStream.RemoteCertificate == null) { await _rejectChatClient(unauthCli, unauthStream, "Certificate is required to authenticate you"); return; }
+                    if (unauthStream.RemoteCertificate == null) { await _rejectChatClient(unauthCli, unauthStream, "Certificate is required to authenticate you"); continue; }
                     X509Certificate2 cliCert = new X509Certificate2(unauthStream.RemoteCertificate);
+
+
+                    /* START CERTIFICATE VALIDATION CODES START */
+
+                    // Expiration Validation
+                    try
+                    {
+                        DateTime expire = DateTime.Parse(cliCert.GetExpirationDateString());
+                        if(expire.Subtract(DateTime.Now).Ticks < 0)
+                        {
+                            await _rejectChatClient(unauthCli, unauthStream, "The certificate you presented was expired");
+                            continue;
+                        }
+                    } catch(FormatException)
+                    {
+                        // Undefined Expiration Date (perhaps, using XCA no well-defined expiration)
+                        await _rejectChatClient(unauthCli, unauthStream, "A valid expiration date must be presented on the certificate");
+                        continue;
+                    }
+
                     // CA Verify
                     X509Chain certChain = new X509Chain();
                     certChain.Build(cliCert);
                     bool isCASponsored = false;
+                    
+                    // Reject self-signed cert
+                    if(certChain.ChainElements.Count < 2) { await _rejectChatClient(unauthCli, unauthStream, "Self-signed certificates are not allowed"); continue; }
+
+                    // Validate Chain (and not self)
                     foreach (X509ChainElement cert in certChain.ChainElements)
-                        isCASponsored = Array.Find<string>(this.conf.CAFingerprint, (a)=>a.ToLower() == cert.Certificate.Thumbprint.ToLower()) != null;
-                    if(!isCASponsored) { await _rejectChatClient(unauthCli, unauthStream, "Certificate is not issued by an authorized CA"); return; }
+                        if(cert.Certificate.Thumbprint != cliCert.Thumbprint)
+                            isCASponsored = Array.Find<string>(this.conf.CAFingerprint, (a)=>a.ToLower() == cert.Certificate.Thumbprint.ToLower()) != null;
+                    if(!isCASponsored) { await _rejectChatClient(unauthCli, unauthStream, "Certificate is not issued by an authorized CA"); continue; }
 
                     // Check if the client has been blacklisted
                     if (Array.Find<string>(this.conf.BannedSerial, (k) => k.ToLower().Equals(cliCert.SerialNumber.ToLower())) != null)
                     {
                         await _rejectChatClient(unauthCli, unauthStream, "Certificate Serial Blacklisted");
-                        return;
+                        continue;
                     }
+
+                    /* END CERTIFICATE VALIDATION CODES END */
+
 
                     // Get client type request
                     byte[] req = new byte[1];
@@ -146,7 +175,7 @@ namespace Server
                 {
                     X509Certificate2 remoteCert = new X509Certificate2(stream.RemoteCertificate!);
                     utils.print(Messages[i].ToString(), String.Format("{0} ({1})", utils.getCertCN(remoteCert.SubjectName), remoteCert.GetSerialNumberString()));
-                    await this.broadcastExcludeClient(Encoding.UTF8.GetBytes(String.Format("{0}\0{1}<EOF>", utils.getCertCN(remoteCert.SubjectName), Messages[i].ToString())));
+                    await this.broadcastExcludeClient(Encoding.UTF8.GetBytes(String.Format("{0}\0{1}<EOF>", utils.getCertCN(remoteCert.SubjectName), Messages[i].ToString())), cli);
                 }
             }
         }

@@ -51,7 +51,7 @@ namespace Client
                 return false;
             } catch (IOException)
             {
-                utils.print("Server disconnected client (or connection failed) during handshake. Common errors may include the use of untrusted, self-signed certificate.");
+                utils.print("Server disconnected client (or connection failed) during handshake.");
                 return false;
             }
         }
