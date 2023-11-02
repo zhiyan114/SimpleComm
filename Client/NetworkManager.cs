@@ -41,14 +41,17 @@ namespace Client
                     return true;
                 } else if (Message[0] == "1")
                 {
-                    // Failed
+                    // Failed, disconnect from server
                     utils.print("Failed, Reason: " + Message[1], "Authentication");
+                    await this.clientStream.ShutdownAsync();
+                    this.clientStream.Close();
+                    this.client.Close();
                     return false;
                 }
                 return false;
-            } catch (Exception ex)
+            } catch (IOException)
             {
-                utils.print("Some Errors occured: "+ex, "ErrorHandler");
+                utils.print("Server disconnected client (or connection failed) during handshake. Common errors may include the use of untrusted, self-signed certificate.");
                 return false;
             }
         }
@@ -59,7 +62,8 @@ namespace Client
         }
         async private void _handleServerMessage(SslStream stream)
         {
-            while (true)
+            bool serverClosed = false;
+            while (!serverClosed)
             {
                 // Read all the available messages
                 int LeftByte = -1;
@@ -67,8 +71,17 @@ namespace Client
                 do
                 {
                     byte[] msgBuffer = new byte[1024];
-                    LeftByte = await stream.ReadAsync(msgBuffer, 0, msgBuffer.Length);
-                    userMessage.Append(msgBuffer);
+                    try
+                    {
+                        LeftByte = await stream.ReadAsync(msgBuffer, 0, msgBuffer.Length);
+                    } catch(IOException)
+                    {
+                        utils.print("Server Connection Closed, please exit the software");
+                        serverClosed = true;
+                        break;
+                    }
+                    userMessage.Append(Encoding.UTF8.GetString(msgBuffer));
+                    if (userMessage.ToString().IndexOf("<EOF>") != -1) break;
                 } while (LeftByte != 0);
                 string[] Messages = userMessage.ToString().Split("<EOF>");
                 // Get all the seperate message and process them, ignore the last item since I'll be empty

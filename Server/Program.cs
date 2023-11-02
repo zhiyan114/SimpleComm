@@ -32,6 +32,6 @@ utils.print("Server is listening...");
 while(true)
 {
     string? message = Console.ReadLine();
-    if(message != null)
+    if(message != null && !string.IsNullOrWhiteSpace(message))
         await network.broadcastClient(Encoding.UTF8.GetBytes(String.Format("server\0{0}<EOF>", message.Replace("<EOF>", ""))));
 }

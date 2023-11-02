@@ -1,5 +1,7 @@
 ﻿using Client;
 using System.Net;
+using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -141,15 +143,40 @@ while(clientCert == null)
     }
 }
 utils.print(string.Format("Certificate: {0} ({1}) will now be used as authentication", utils.getCertCN(clientCert.SubjectName), clientCert.SerialNumber), "CertMgr");
-NetworkManager network = new NetworkManager(srvIP, srvPort, clientCert);
-bool result = await network.initalHandshake();
-if (!result) return;
+NetworkManager network;
+try
+{
+    network = new NetworkManager(srvIP, srvPort, clientCert);
+} catch (SocketException)
+{
+    utils.print("Server is offline or the address you input was incorrect", null, true);
+    return;
+}
+bool result = false;
+try
+{
+    result = await network.initalHandshake();
+} catch(AuthenticationException)
+{
+    utils.print("Invalid Certificate Credential Provided", null, true);
+    return;
+}
+if (!result) { Console.ReadLine(); return;}
 network.setupReceivingThread();
-utils.print("Connection Complete!");
+utils.print("Client Ready!");
 while (true)
 {
     string? message = Console.ReadLine();
-    byte[] messageByte = Encoding.UTF8.GetBytes(String.Format("{0}<EOF>", message.Replace("<EOF>", "")));
-    if (message != null)
-        network.clientStream.Write(messageByte,0, messageByte.Length);
+    if (message != null && !string.IsNullOrWhiteSpace(message))
+    {
+        byte[] messageByte = Encoding.UTF8.GetBytes(String.Format("{0}<EOF>", message.Replace("<EOF>", "")));
+        try
+        {
+            network.clientStream.Write(messageByte, 0, messageByte.Length);
+        } catch(IOException)
+        {
+            break;
+        }
+    }
+        
 }

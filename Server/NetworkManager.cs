@@ -45,8 +45,8 @@ namespace Server
                 try
                 {
                     await unauthStream.AuthenticateAsServerAsync(this.serverCert, true, false);
-                    
-                    if (unauthStream.RemoteCertificate == null) { await _rejectClient(unauthCli, unauthStream, "Certificate is required to authenticate you"); return; }
+
+                    if (unauthStream.RemoteCertificate == null) { await _rejectChatClient(unauthCli, unauthStream, "Certificate is required to authenticate you"); return; }
                     X509Certificate2 cliCert = new X509Certificate2(unauthStream.RemoteCertificate);
                     // CA Verify
                     X509Chain certChain = new X509Chain();
@@ -54,12 +54,12 @@ namespace Server
                     bool isCASponsored = false;
                     foreach (X509ChainElement cert in certChain.ChainElements)
                         isCASponsored = Array.Find<string>(this.conf.CAFingerprint, (a)=>a.ToLower() == cert.Certificate.Thumbprint.ToLower()) != null;
-                    if(!isCASponsored) { await _rejectClient(unauthCli, unauthStream, "Certificate is not issued by an authorized CA"); return; }
+                    if(!isCASponsored) { await _rejectChatClient(unauthCli, unauthStream, "Certificate is not issued by an authorized CA"); return; }
 
                     // Check if the client has been blacklisted
                     if (Array.Find<string>(this.conf.BannedSerial, (k) => k.ToLower().Equals(cliCert.SerialNumber.ToLower())) != null)
                     {
-                        await _rejectClient(unauthCli, unauthStream, "Certificate Serial Blacklisted");
+                        await _rejectChatClient(unauthCli, unauthStream, "Certificate Serial Blacklisted");
                         return;
                     }
 
@@ -77,32 +77,35 @@ namespace Server
                                 KeyUsages.Count > 0 &&
                                 KeyUsages.Find((k)=>Array.IndexOf<string>(this.conf.ChatOID, k.Oid?.Value ?? "") != -1) == null)
                             {
-                                await _rejectClient(unauthCli, unauthStream, "Certificate Unauthorized to access chat");
+                                await _rejectChatClient(unauthCli, unauthStream, "Certificate Unauthorized to access chat");
                                 return;
                             }
                             await _acceptChatClient(unauthCli, unauthStream);
-                            utils.print("New Client Accepted!");
                             break;
                         // File Upload Client
                         case 0x2:
-                            await _rejectClient(unauthCli, unauthStream, "Feature Unavailable");
+                            await _rejectChatClient(unauthCli, unauthStream, "Feature Unavailable");
                             break;
                         // File Receive Client
                         case 0x3:
-                            await _rejectClient(unauthCli, unauthStream, "Feature Unavailable");
+                            await _rejectChatClient(unauthCli, unauthStream, "Feature Unavailable");
                             break;
                         // Bad Client Request
                         default:
-                            await _rejectClient(unauthCli, unauthStream, "Invalid Client Request Detected");
+                            await _rejectChatClient(unauthCli, unauthStream, "Invalid Client Request Detected");
                             return;
                     }
 
                 }
-                catch (AuthenticationException Aex)
+                catch (AuthenticationException)
                 {
-                    utils.print("A client's authentication occured an error: "+Aex, "AuthError");
+                    utils.print("A client's authentication occured an error", "AuthError");
                     unauthStream.Close();
                     unauthCli.Close();
+                }
+                catch(IOException)
+                {
+                    utils.print("An unknown client attempted authentication, but disconnected...", "AuthError");
                 }
             }
         }
@@ -111,9 +114,11 @@ namespace Server
 
 
         // Handle all incoming message from TcpClients
-        async private void _handlePlayerMessage(SslStream stream)
+        async private void _handlePlayerMessage(TcpClient cli)
         {
-            while (true)
+            SslStream stream = ChatClientStream[cli];
+            bool clientClosed = false;
+            while (!clientClosed)
             {
                 // Read all the available messages
                 int LeftByte = -1;
@@ -121,16 +126,27 @@ namespace Server
                 do
                 {
                     byte[] msgBuffer = new byte[1024];
-                    LeftByte = await stream.ReadAsync(msgBuffer, 0, msgBuffer.Length);
-                    userMessage.Append(msgBuffer);
+                    try
+                    {
+                        LeftByte = await stream.ReadAsync(msgBuffer, 0, msgBuffer.Length);
+                    } catch(IOException)
+                    {
+                        // Client Closed
+                        await closeClient(cli);
+                        clientClosed = true;
+                        break;
+                    }
+                    userMessage.Append(Encoding.UTF8.GetString(msgBuffer));
+                    if (userMessage.ToString().IndexOf("<EOF>") != -1) break;
                 } while (LeftByte != 0);
+                if (clientClosed) break;
                 string[] Messages = userMessage.ToString().Split("<EOF>");
                 // Get all the seperate message and process them, ignore the last item since I'll be empty
                 for(int i = 0; i < Messages.Length-1; i++)
                 {
                     X509Certificate2 remoteCert = new X509Certificate2(stream.RemoteCertificate!);
                     utils.print(Messages[i].ToString(), String.Format("{0} ({1})", utils.getCertCN(remoteCert.SubjectName), remoteCert.GetSerialNumberString()));
-                    await this.broadcastClient(Encoding.UTF8.GetBytes(String.Format("${0}\0${1}<EOF>", utils.getCertCN(remoteCert.SubjectName), Messages[i].ToString())));
+                    await this.broadcastExcludeClient(Encoding.UTF8.GetBytes(String.Format("{0}\0{1}<EOF>", utils.getCertCN(remoteCert.SubjectName), Messages[i].ToString())));
                 }
             }
         }
@@ -141,20 +157,31 @@ namespace Server
         // Handles client acceptance and welcome message
         async private Task _acceptChatClient(TcpClient cli, SslStream stream)
         {
-            byte[] welcomeMsg = Encoding.UTF8.GetBytes(String.Format("0:"+"Authentication Success: {0}", this.conf.MOTD));
+            byte[] welcomeMsg = Encoding.UTF8.GetBytes(String.Format("0:{0}", this.conf.MOTD));
             await stream.WriteAsync(welcomeMsg, 0, welcomeMsg.Length);
             ChatClient.Add(cli);
             ChatClientStream[cli] = stream;
-            ChatClientThread[cli] = new Thread(() => _handlePlayerMessage(stream));
+            ChatClientThread[cli] = new Thread(() => _handlePlayerMessage(cli));
             ChatClientThread[cli].Start();
+            X509Certificate2 cliCert = new X509Certificate2(stream.RemoteCertificate!);
+            utils.print("Accepted Chat Client", string.Format("{0} ({1})", utils.getCertCN(cliCert.SubjectName), cliCert.SerialNumber));
         }
         // Reject the client's connection after connection passes
-        async private Task _rejectClient(TcpClient cli, SslStream stream, string reason = "")
+        async private Task _rejectChatClient(TcpClient cli, SslStream stream, string reason = "")
         {
             byte[] msg = Encoding.UTF8.GetBytes("1:"+reason);
             await stream.WriteAsync(msg,0,msg.Length);
-            await stream.ShutdownAsync();
-            cli.Close();
+            X509Certificate2 cliCert = new X509Certificate2(stream.RemoteCertificate!);
+            utils.print("Rejected Chat Client: "+reason, string.Format("{0} ({1})", utils.getCertCN(cliCert.SubjectName), cliCert.SerialNumber));
+            // Cleanup connection in 15s to ensure client gets the message and self-disconnect...
+            Timer? timeoutDel = null;
+            timeoutDel = new Timer((state) =>
+            {
+                // stream.ShutdownAsync();
+                stream.Close();
+                cli.Close();
+                timeoutDel?.Dispose();
+            }, null,15000, Timeout.Infinite);
 
         }
 
@@ -173,7 +200,13 @@ namespace Server
                 return;
             }
             foreach(TcpClient cli in ChatClient)
-                await ChatClientStream[cli].WriteAsync(message,0,message.Length);
+                await ChatClientStream[cli].WriteAsync(message, 0, message.Length);
+        }
+        async public Task broadcastExcludeClient(byte[] message, params TcpClient[] ignoreClient)
+        {
+            foreach (TcpClient cli in ChatClient)
+                if(!ignoreClient.Contains(cli))
+                    await ChatClientStream[cli].WriteAsync(message, 0, message.Length);
         }
         async public Task gracefulShutdown()
         {
@@ -187,9 +220,20 @@ namespace Server
 
             }
         }
-        async public Task closeClient()
+        async public Task closeClient(TcpClient cli, bool graceful=false)
         {
-
+            if(graceful)
+            {
+                await ChatClientStream[cli].ShutdownAsync();
+            }
+            X509Certificate2 userID = new X509Certificate2(ChatClientStream[cli].RemoteCertificate!);
+            utils.print("Client Disconnected", String.Format("{0} ({1})", utils.getCertCN(userID.SubjectName), userID.SerialNumber));
+            cli.Close();
+            ChatClientStream[cli].Close();
+            ChatClientThread[cli].Interrupt();
+            ChatClientThread.Remove(cli);
+            ChatClientStream.Remove(cli);
+            ChatClient.Remove(cli);
         }
     }
 }

@@ -18,7 +18,12 @@ namespace Client
         }
         public static string getCertCN(X500DistinguishedName name)
         {
-            return name.Name.Split(", ")[0].Split("=")[1];
+            foreach (string SubjectName in name.Name.Split(", "))
+            {
+                string[] names = SubjectName.Split("=");
+                if (names[0] == "CN") return names[1];
+            }
+            return "CN NULL";
         }
         public static bool clientIsConnected(Socket socket)
         {
