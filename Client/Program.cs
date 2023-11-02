@@ -1,4 +1,5 @@
 ﻿using Client;
+using System.ComponentModel;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Authentication;
@@ -107,16 +108,7 @@ while(clientCert == null)
                         utils.print("Smart Card is only supported on Windows", "CertMgr");
                         continue;
                     }
-                    // Pull single cert when not running as admin (due to API privilege)
-                    if (!utils.isRunningAdmin())
-                    {
-                        utils.print("Smart Card Selection is only available when running as administrator");
-                        clientCert = SmartCard.GetDefaultSmartCardCert();
-                        if (clientCert != null) break;
-                        utils.print("No smart card detected, try again");
-                        continue;
-                    }
-                    // Pull all available cert when running as admin
+                    // Let user select certificate
                     X509Certificate2Collection selectedSmartCard = X509Certificate2UI.SelectFromCollection(SmartCard.GetCertificates(), "Select Smart Card", "Select one of the following smart card certificate for client authentication", X509SelectionFlag.SingleSelection);
                     if (selectedSmartCard.Count == 0)
                     {
@@ -125,7 +117,7 @@ while(clientCert == null)
                     }
                     clientCert = selectedSmartCard[0];
                     break;
-                } catch(CryptographicException)
+                } catch(Win32Exception)
                 {
                     utils.print("No smart card detected, try again", "CertMgr");
                     continue;
