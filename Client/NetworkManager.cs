@@ -33,7 +33,7 @@ namespace Client
                 await clientStream.WriteAsync(new byte[1] { 0x1 }, 0, 1);
                 byte[] handShakeMessage = new byte[1024];
                 await clientStream.ReadAsync(handShakeMessage, 0, handShakeMessage.Length);
-                string[] Message = Encoding.UTF8.GetString(handShakeMessage).Split(":");
+                string[] Message = Encoding.UTF8.GetString(handShakeMessage).Split("\0");
                 if (Message[0] == "0")
                 {
                     // Success

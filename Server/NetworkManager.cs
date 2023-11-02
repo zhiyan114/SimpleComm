@@ -122,7 +122,7 @@ namespace Server
                         // Bad Client Request
                         default:
                             await _rejectChatClient(unauthCli, unauthStream, "Invalid Client Request Detected");
-                            return;
+                            break;
                     }
 
                 }
@@ -186,23 +186,29 @@ namespace Server
         // Handles client acceptance and welcome message
         async private Task _acceptChatClient(TcpClient cli, SslStream stream)
         {
-            byte[] welcomeMsg = Encoding.UTF8.GetBytes(String.Format("0:{0}", this.conf.MOTD));
+            byte[] welcomeMsg = Encoding.UTF8.GetBytes(String.Format("0\0{0}", this.conf.MOTD));
             await stream.WriteAsync(welcomeMsg, 0, welcomeMsg.Length);
             ChatClient.Add(cli);
             ChatClientStream[cli] = stream;
             ChatClientThread[cli] = new Thread(() => _handlePlayerMessage(cli));
             ChatClientThread[cli].Start();
             X509Certificate2 cliCert = new X509Certificate2(stream.RemoteCertificate!);
-            utils.print("Accepted Chat Client", string.Format("{0} ({1})", utils.getCertCN(cliCert.SubjectName), cliCert.SerialNumber));
+            utils.print("Accepted Chat Client", string.Format("auth_{0} ({1})", utils.getCertCN(cliCert.SubjectName), cliCert.SerialNumber));
         }
         // Reject the client's connection after connection passes
         async private Task _rejectChatClient(TcpClient cli, SslStream stream, string reason = "")
         {
-            byte[] msg = Encoding.UTF8.GetBytes("1:"+reason);
+            byte[] msg = Encoding.UTF8.GetBytes("1\0"+reason);
             await stream.WriteAsync(msg,0,msg.Length);
-            X509Certificate2 cliCert = new X509Certificate2(stream.RemoteCertificate!);
-            utils.print("Rejected Chat Client: "+reason, string.Format("{0} ({1})", utils.getCertCN(cliCert.SubjectName), cliCert.SerialNumber));
-            // Cleanup connection in 15s to ensure client gets the message and self-disconnect...
+            string user = "auth_";
+            if (stream.RemoteCertificate != null)
+            {
+                X509Certificate2 cliCert = new X509Certificate2(stream.RemoteCertificate);
+                user += string.Format("{0} ({1})", utils.getCertCN(cliCert.SubjectName), cliCert.SerialNumber);
+            } else user += "Unknown";
+            
+            utils.print("Rejected Chat Client: "+reason, user);
+            // Cleanup connection in 5s to ensure client gets the message and self-disconnect...
             Timer? timeoutDel = null;
             timeoutDel = new Timer((state) =>
             {
@@ -210,7 +216,7 @@ namespace Server
                 stream.Close();
                 cli.Close();
                 timeoutDel?.Dispose();
-            }, null,15000, Timeout.Infinite);
+            }, null,5000, Timeout.Infinite);
 
         }
 
